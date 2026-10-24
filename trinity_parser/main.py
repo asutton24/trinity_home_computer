@@ -138,4 +138,8 @@ def parse_code(input: str) -> str:
 
     # Join each line with a new line
     output = '\n'.join(output_lines)
-    return output
+    
+    fp = os.path.join(os.getcwd(), "bin", f"{FILENAME}.bin") # Add file name here
+
+    with open(fp, 'w') as f:
+        f.write(output)
