@@ -156,3 +156,16 @@ def parse_file(source_path: str) -> str:
         output_file.write(bytes.fromhex(machine_code))
 
     return output_path
+
+
+if __name__ == '__main__':
+    import sys
+
+    if len(sys.argv) < 2:
+        sys.exit(f"Usage: python {os.path.basename(__file__)} <source.s> [more.s ...]")
+
+    for path in sys.argv[1:]:
+        try:
+            print(f"Assembled {path} -> {parse_file(path)}")
+        except (OSError, ValueError) as exc:
+            sys.exit(f"Could not assemble {path}: {exc}")

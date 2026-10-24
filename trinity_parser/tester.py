@@ -1,11 +1,10 @@
 # THIS FILE IS OLD. BUT IT STILL WORKS AND WE ARE KEEPING IT FOR BASIC TESTING
-# TO MAKE THIS FILE WORK, MAKE THE PARSER RETURN A STRING
 
-from main import parse_code as parse_code
+from main import parse_code, parse_file
 import os
 
 def main():
-    FILENAME = "decimal_num" # do not include .s
+    FILENAME = "trinity_ai_sub" # do not include .s
 
     os.getcwd()
     fp = os.path.join(os.getcwd(), "basic_examples", f"{FILENAME}.s") # Add file name here
@@ -14,6 +13,8 @@ def main():
         code = f.read()
         result = parse_code(code)
         print(repr(result))
+
+    print(f"Wrote {parse_file(fp)}")
 
 
 main()
