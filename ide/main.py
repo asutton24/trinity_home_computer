@@ -11,11 +11,6 @@ were derived from it, and the assistant receives its full text as context.
 
 Requirements: Python 3.10+ with Tkinter. No third-party packages are needed;
 the Gemini API is called over HTTPS with the standard library.
-
-IMPORTANT: The Run button is wired to an intentionally unresolved placeholder
-import (``runner_integration_placeholder``). Until a future developer supplies
-that module, importing or launching this file fails with ModuleNotFoundError.
-That failure is expected and deliberate.
 """
 
 from __future__ import annotations
@@ -38,17 +33,8 @@ from tkinter import filedialog, messagebox, ttk
 from tkinter import font as tkfont
 from typing import Callable, Mapping, Sequence
 
-# ============================================================================
-# PLACEHOLDER RUNNER INTEGRATION — INTENTIONALLY UNIMPLEMENTED
-#
-# The module and function below do not exist yet.
-# This import is an explicit integration point for a future implementation.
-#
-# Do not create the module.
-# Do not define the function locally.
-# Do not add a fallback or suppress the import failure.
-# ============================================================================
-# from runner_integration_placeholder import run_program_placeholder
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from trinity_parser.main import parse_file
 
 # ============================================================================
 # Application constants
@@ -116,39 +102,45 @@ class Instruction:
     opcodes: Mapping[str, str]
 
 
+def _mode_opcode_map(modes: Sequence[str], opcodes: Sequence[str]) -> dict[str, str]:
+    if len(modes) != len(opcodes):
+        raise ValueError("The number of addressing modes must match the number of opcodes.")
+    return dict(zip(modes, opcodes))
+
+
 def _alu_modes(*opcodes: str) -> dict[str, str]:
     """Map the specification's standard 7-mode operand list (b, c, imd, abs,
     abs,i, (ind), (ind),i) to the given opcodes, in that order."""
     modes = ("b", "c", MODE_IMMEDIATE, MODE_ABSOLUTE, MODE_ABSOLUTE_INDEXED,
              MODE_INDIRECT, MODE_INDIRECT_INDEXED)
-    return dict(zip(modes, opcodes, strict=True))
+    return _mode_opcode_map(modes, opcodes)
 
 
 def _shift_modes(*opcodes: str) -> dict[str, str]:
     """Map the shift/rotate operand list (a, b, c, abs, abs,i, (ind), (ind),i)."""
     modes = ("a", "b", "c", MODE_ABSOLUTE, MODE_ABSOLUTE_INDEXED,
              MODE_INDIRECT, MODE_INDIRECT_INDEXED)
-    return dict(zip(modes, opcodes, strict=True))
+    return _mode_opcode_map(modes, opcodes)
 
 
 def _step_modes(*opcodes: str) -> dict[str, str]:
     """Map the inc/dec operand list (a, b, c, i, abs, abs,i, (ind), (ind),i)."""
     modes = ("a", "b", "c", "i", MODE_ABSOLUTE, MODE_ABSOLUTE_INDEXED,
              MODE_INDIRECT, MODE_INDIRECT_INDEXED)
-    return dict(zip(modes, opcodes, strict=True))
+    return _mode_opcode_map(modes, opcodes)
 
 
 def _load_modes(*opcodes: str) -> dict[str, str]:
     """Map the load operand list (imd, abs, abs,i, (ind), (ind),i)."""
     modes = (MODE_IMMEDIATE, MODE_ABSOLUTE, MODE_ABSOLUTE_INDEXED,
              MODE_INDIRECT, MODE_INDIRECT_INDEXED)
-    return dict(zip(modes, opcodes, strict=True))
+    return _mode_opcode_map(modes, opcodes)
 
 
 def _store_modes(*opcodes: str) -> dict[str, str]:
     """Map the store operand list (abs, abs,i, (ind), (ind),i)."""
     modes = (MODE_ABSOLUTE, MODE_ABSOLUTE_INDEXED, MODE_INDIRECT, MODE_INDIRECT_INDEXED)
-    return dict(zip(modes, opcodes, strict=True))
+    return _mode_opcode_map(modes, opcodes)
 
 
 def _implied(opcode: str) -> dict[str, str]:
@@ -2619,10 +2611,10 @@ class TrinityIDE(tk.Tk):
         if self.confirm_unsaved_changes("closing"):
             self.destroy()
 
-    # --- run (placeholder integration) --------------------------------------
+    # --- run / assemble ------------------------------------------------------
 
     def run_current_file(self) -> None:
-        """Save the current .s file, then hand its path to the placeholder runner integration."""
+        """Save the current .s file, then ask the parser to write its .bin output."""
         if self.document.path is None:
             if not messagebox.askokcancel("Run", "This program has not been saved yet.\n\n"
                                                  "Save it as a .s file and run it?", parent=self):
@@ -2645,16 +2637,12 @@ class TrinityIDE(tk.Tk):
             return
 
         current_file_path = str(path)
-        self.flash_status(f"Run requested for {path.name}")
         try:
-            # PLACEHOLDER: Future runner integration call.
-            run_program_placeholder(current_file_path)
-        except NotImplementedError:
-            messagebox.showinfo("Run", "The runner integration is not implemented yet.", parent=self)
-        except Exception as exc:  # errors raised by the future runner implementation
+            output_path = parse_file(current_file_path)
+            self.flash_status(f"Assembled {Path(output_path).name}")
+        except Exception as exc:  # assembly and file I/O errors are shown to the user
             self.flash_status(f"Run failed: {exc.__class__.__name__}", "error", seconds=8)
-            messagebox.showerror("Run failed", f"The runner reported an error while starting "
-                                               f"“{path.name}”.\n\n{exc}", parent=self)
+            messagebox.showerror("Assembly failed", f"Could not assemble “{path.name}”.\n\n{exc}", parent=self)
 
     # --- assistant -----------------------------------------------------------
 

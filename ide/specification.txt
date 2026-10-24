@@ -386,7 +386,7 @@ sec (set carry)
 
 carry = 1
 
-sec 10
+sec F0
 
 sta (store a)
 
