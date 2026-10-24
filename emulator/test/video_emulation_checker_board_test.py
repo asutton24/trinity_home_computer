@@ -1,7 +1,13 @@
+from pathlib import Path
+import sys
+
 import pygame
 
-from palette import BLACK, WHITE, make_byte
-from video_emulation import video_emulation
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from emulator.palette import BLACK, WHITE, make_byte
+from emulator.video_emulation import video_emulation
 
 # Must match the layout video_emulation reads from
 VRAM_START = 8000
@@ -15,7 +21,7 @@ CANVAS_HEIGHT = Y_GRID_SIZE * 4
 WINDOW_SCALE = 1
 
 
-def generate_test_memory() -> [str]:
+def generate_test_memory() -> list[str]:
     # Everything below VRAM_START is filler so the list indexes line up
     memory = ["0"] * (VRAM_START + NUM_BLOCKS * BYTES_PER_BLOCK)
 
