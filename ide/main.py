@@ -34,7 +34,7 @@ from tkinter import font as tkfont
 from typing import Callable, Mapping, Sequence
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from parser.main import parse_code
+from trinity_parser.main import parse_code
 
 # ============================================================================
 # Application constants
