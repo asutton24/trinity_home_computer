@@ -7,3 +7,6 @@ def main():
         code = f.read()
         result = parse_code(code)
         print(result)
+
+
+main()
