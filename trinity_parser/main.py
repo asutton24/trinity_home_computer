@@ -1,6 +1,17 @@
 from __future__ import annotations
 
 import os
+import re
+from typing import Protocol
+
+
+class WritableMemory(Protocol):
+    def load_bytes(self, addr: int, values: bytes) -> int: ...
+
+
+_LABEL_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):(.*)$")
+_LABEL_OPERAND_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_JUMP_MNEMONICS = {"jcc", "jcs", "jeq", "jne", "jmp", "jsr"}
 
 
 # Opcode of every instruction for each addressing mode it supports (from specification.txt)
@@ -121,21 +132,82 @@ def map_line(input_line: list[str]) -> str:
     return opcodes[mode] + map_little_endian(value)
 
 
-def parse_code(input: str) -> str:
-    """Assemble source text and return its machine code as hexadecimal text."""
-    input_lines = input.splitlines()
-    output_lines = []
+def _resolve_jump_label(instruction: str, labels: dict[str, int]) -> str:
+    parts = instruction.split()
+    if len(parts) != 2 or parts[0].lower() not in _JUMP_MNEMONICS:
+        return instruction
 
-    for line_number, input_line in enumerate(input_lines, start=1):
-        stripped_line = input_line.strip()
-        if not stripped_line or stripped_line.startswith(';'):
+    mode, value = get_mode(parts[1])
+    if value is None or not _LABEL_OPERAND_RE.fullmatch(value):
+        return instruction
+    label_address = labels[value.lower()]
+    address = f"${label_address:04X}"
+    parts[1] = f"({address})" if mode == "(ind)" else address
+    return " ".join(parts)
+
+
+def parse_code(input: str, start_address: int = 0) -> str:
+    """Assemble source text to machine-code hex, resolving jump labels."""
+    if not 0 <= start_address <= 0xFFFF:
+        raise ValueError("Start address must be between $0000 and $FFFF.")
+
+    labels: dict[str, int] = {}
+    instructions: list[tuple[int, str]] = []
+    current_address = start_address
+
+    for line_number, input_line in enumerate(input.splitlines(), start=1):
+        stripped_line = input_line.split(';', 1)[0].strip()
+        if not stripped_line:
             continue
+
+        label_match = _LABEL_RE.match(stripped_line)
+        if label_match:
+            label = label_match.group(1).lower()
+            if label in labels:
+                raise ValueError(f"Line {line_number}: duplicate label '{label_match.group(1)}'.")
+            if current_address > 0xFFFF:
+                raise ValueError(f"Line {line_number}: label is outside the 16-bit address space.")
+            labels[label] = current_address
+            stripped_line = label_match.group(2).strip()
+            if not stripped_line:
+                continue
+
+        provisional_instruction = stripped_line
+        parts = stripped_line.split()
+        if len(parts) == 2 and parts[0].lower() in _JUMP_MNEMONICS:
+            mode, value = get_mode(parts[1])
+            if value is not None and _LABEL_OPERAND_RE.fullmatch(value):
+                parts[1] = "($0000)" if mode == "(ind)" else "$0000"
+                provisional_instruction = " ".join(parts)
+
         try:
-            output_lines.append(map_line(stripped_line.split()))
+            instruction_length = len(map_line(provisional_instruction.split())) // 2
+        except ValueError as exc:
+            raise ValueError(f"Line {line_number}: {exc}") from exc
+
+        instructions.append((line_number, stripped_line))
+        current_address += instruction_length
+        if current_address > 0x10000:
+            raise ValueError(f"Line {line_number}: program exceeds the 16-bit address space.")
+
+    output_lines = []
+    for line_number, instruction in instructions:
+        try:
+            resolved_instruction = _resolve_jump_label(instruction, labels)
+            output_lines.append(map_line(resolved_instruction.split()))
+        except KeyError as exc:
+            label = str(exc.args[0])
+            raise ValueError(f"Line {line_number}: undefined label '{label}'.") from exc
         except ValueError as exc:
             raise ValueError(f"Line {line_number}: {exc}") from exc
 
     return ''.join(output_lines)
+
+
+def parse_into_memory(input: str, memory: WritableMemory, start_address: int = 0) -> int:
+    """Assemble source text and load its machine-code bytes into writable memory."""
+    machine_code = bytes.fromhex(parse_code(input, start_address))
+    return memory.load_bytes(start_address, machine_code)
 
 
 def parse_file(source_path: str) -> str:
