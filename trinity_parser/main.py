@@ -1,3 +1,8 @@
+from __future__ import annotations
+
+import os
+
+
 # Opcode of every instruction for each addressing mode it supports (from specification.txt)
 OPCODES = {
     'adc': {'b': '01', 'c': '02', 'imd': '03', 'abs': '04', 'abs,i': '05', '(ind)': '06', '(ind),i': '07'},
@@ -117,29 +122,37 @@ def map_line(input_line: list[str]) -> str:
 
 
 def parse_code(input: str) -> str:
-    # Remove all \r
-    input = input.strip('\r')
-
-    # Initialize input lines
-    input_lines = input.split('\n')
-
-    # Initialize output lines
+    """Assemble source text and return its machine code as hexadecimal text."""
+    input_lines = input.splitlines()
     output_lines = []
 
-    # Process each line
-    for input_line in input_lines:
-        #  Skip comments
-        if input_line.strip().startswith(';'):
+    for line_number, input_line in enumerate(input_lines, start=1):
+        stripped_line = input_line.strip()
+        if not stripped_line or stripped_line.startswith(';'):
             continue
+        try:
+            output_lines.append(map_line(stripped_line.split()))
+        except ValueError as exc:
+            raise ValueError(f"Line {line_number}: {exc}") from exc
 
-        # Implement the line processing logic here
-        split_line = input_line.split()
-        output_lines.append(map_line(split_line))
+    return ''.join(output_lines)
 
-    # Join each line with a new line
-    output = '\n'.join(output_lines)
-    
-    fp = os.path.join(os.getcwd(), "bin", f"{FILENAME}.bin") # Add file name here
 
-    with open(fp, 'w') as f:
-        f.write(output)
+def parse_file(source_path: str) -> str:
+    """Assemble a source file, write its output in the project bin directory, and return its path."""
+    source_path = os.path.abspath(source_path)
+    if not os.path.isfile(source_path):
+        raise FileNotFoundError(f"Source file not found: {source_path}")
+
+    with open(source_path, encoding='utf-8') as source_file:
+        machine_code = parse_code(source_file.read())
+
+    project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    output_dir = os.path.join(project_dir, 'bin')
+    os.makedirs(output_dir, exist_ok=True)
+    output_name = os.path.splitext(os.path.basename(source_path))[0] + '.bin'
+    output_path = os.path.join(output_dir, output_name)
+    with open(output_path, 'wb') as output_file:
+        output_file.write(bytes.fromhex(machine_code))
+
+    return output_path
