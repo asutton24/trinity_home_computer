@@ -1,0 +1,479 @@
+Project Trinity Specifications:
+
+Memory map:
+0000-7FFF: User ram
+8000-895F: VRAM
+9000: Video select byte
+9001: clock byte (ticks every 1/60 seconds)
+9002: Bell byte (bell will sound when this is non-zero
+9003: ASCII code of last key pressed
+9004: Keyboard control byte (1 if any key is pressed)
+9005: Joystick 0 status byte (arrow keys and control key, XXXUDLRC)
+9006: Joystick 1 status byte (arrow keys and control key, XXXUDLRC)
+9007: Byte visible from tape
+9008: Tape counter (will be incremented every time a new byte is made visible)
+9009: Tape player on/off (zero for off, non-zero for on)
+C000-FFFF: System rom
+
+Video Modes:
+
+Project Trinity has a 320 by 240 output which corresponds to 40 by 30 characters
+or 80 by 60 subpixels, all video data is stored in VRAM
+
+Mode 0:
+
+Text Mode, each pair of two bytes corresponds to a 8 by 8 location on the screen.
+The first byte has the background color in the upper nibble and foreground color
+in the lower nibble. The second byte contains the code of the character to be
+displayed in that location. The first pair corresponds to the top left position
+with the following pairs moving right across the screen and down when a row is
+complete.
+
+Mode 1:
+
+Graphics mode, each pair of two bytes corresponds to an 8 by 8 location on the screen.
+They are laid out in the same order as in text mode. Each 8 by 8 location is split into
+four 4 by 4 subpixels. The first byte sets the color of the upper two subpixels while
+the second sets the color of the lower two subpixels. In both the upper nibble corresponds
+to the left subpixel while the lower nibble corresponds to the right subpixel.
+
+Mode 2:
+
+Mixed mode:
+
+The first 26 rows are in graphics mode while the remaining 4 are in text mode.
+
+
+
+
+
+CPU Specs:
+
+Registers: a, 8 bit accumulator; b and c, 8 bit general purpose registers;
+i, 8 bit index register; pc, 16 bit program counter; sp, 16 bit stack pointer
+
+Flags:
+1 bit zero flag (invoked when a result is 0); 1 bit carry flag
+
+Execution starts at address specified in FFFE-FFFF
+
+The CPU runs at 1,000,000 instructions per second
+
+Addressing modes:
+
+imp: no operand is used. Ex sec
+
+a: the a register is used as the operand. Ex lsr a
+
+b: the b register is used as the operand. Ex adc b
+
+c: the c register is used as the operand. Ex and c
+
+i: the i register is used as the operand. Ex inc i
+
+imd: The byte following the opcode is used as the operand. Ex xor #$01
+
+abs: The byte at the address specified by abs is used. Ex ora $1000
+
+abs,i: The byte at the address specified by abs plus i is used. Ex lda $2002,i
+
+(ind): A pointer stored at ind is used to fetch the operand. Ex ldb ($0001)
+
+(ind),i: The pointer stored at ind plus i is used as the operand Ex ldc ($FF00),i
+
+Instructions:
+
+Notes: all addresses are stored little endian, all opcodes are in hex
+
+adc (add with carry) ZC
+
+a = a + op + carry
+
+adc b 01
+adc c 02
+adc imd 03
+adc abs 04
+adc abs,i 05
+adc (ind) 06
+adc (ind),i 07
+
+and (bitwise and) Z
+
+a = a & op
+
+and b 21
+and c 22
+and imd 23
+and abs 24
+and abs,i 25
+and (ind) 26
+and (ind),i 27
+
+asl (arithmetic shift left) ZC
+
+reg/mem = reg/mem * 2
+
+carry = bit 7 of reg/mem
+
+asl a B0
+asl b B1
+asl c B2
+asl abs B4
+asl abs,i B5
+asl (ind) B6
+asl (ind),i B7
+
+bit (bit test) C
+
+carry = bit n of a
+
+bit 0 90
+bit 1 91
+bit 2 92
+bit 3 93
+bit 4 94
+bit 5 95
+bit 6 96
+bit 7 97
+
+clc (clear carry) C
+
+carry = 0
+
+clc 10
+
+cmp (compare) ZC
+
+zero is set if a = op
+carry is set if a >= op
+
+cmp b F1
+cmp c F2
+cmp imd F3
+cmp abs F4
+cmp abs,i F5
+cmp (ind) F6
+cmp (ind),i F7
+
+dec (decrement) Z
+
+reg/mem = reg/mem - 1
+
+dec a F8
+dec b F9
+dec c FA
+dec i FB
+dec abs FC
+dec abs,i FD
+dec (ind) FE
+dec (ind),i FF
+
+hlt (halt)
+
+hlt 00
+
+inc (increment) z
+
+reg/mem = reg/mem + 1
+
+inc a E8
+inc b E9
+inc c EA
+inc i EB
+inc abs EC
+inc abs,i ED
+inc (ind) EE
+inc (ind),i EF
+
+jcc (jump if carry clear)
+
+pc = op if carry flag is clear
+
+jcc abs 60
+
+jcs (jump if carry set)
+
+pc = op if carry flag is set
+
+jcs abs 70
+
+jeq (jump if equal)
+
+pc = op if zero flag is set
+
+jeq abs 40
+
+jmp (jump)
+
+pc = op
+
+jmp abs 20
+jmp (ind) 30
+
+jne (jump if not equal)
+
+pc = op if zero flag is clear
+
+jne abs 50
+
+jsr (jump subroutine)
+
+old pc is pushed onto the stack and pc is set to the operand
+
+jsr abs 80
+
+lda (load accumulator) Z
+
+a = op
+
+lda imd 33
+lda abs 34
+lda abs,i 35
+lda (ind) 36
+lda (ind),i 37
+
+ldb (load register b) Z
+
+b = op
+
+ldb imd 43
+ldb abs 44
+ldb abs,i 45
+ldb (ind) 46
+ldb (ind),i 47
+
+ldc (load register c) Z
+
+c = op
+
+ldc imd 53
+ldc abs 54
+ldc abs,i 55
+ldc (ind) 56
+ldc (ind),i 57
+
+ldi (load index register) Z
+
+i = op
+
+ldi imd 63
+ldi abs 64
+ldi (ind) 66
+
+lds (load stack pointer)
+
+s = op
+
+lds imd 73
+
+Note the immediate value here is two bytes as the stack pointer is a 16 bit register
+
+lsr (logical shift right) ZC
+
+reg/mem = reg/mem / 2
+
+carry = bit 0 of reg/mem
+
+lsr a C0
+lsr b C1
+lsr c C2
+lsr abs C4
+lsr abs,i C5
+lsr (ind) C6
+lsr (ind),i C7
+
+nop (no operation)
+
+does nothing
+
+nop 88
+
+ora (bitwise or) Z
+
+a = a | op
+
+ora b 81
+ora c 82
+ora imd 83
+ora abs 84
+ora abs,i 85
+ora (ind) 86
+ora (ind),i 87
+
+pha (push a)
+
+a is pushed onto the stack
+
+pha 09
+
+phb (push b)
+
+b is pushed onto the stack
+
+phb 19
+
+phc (push c)
+
+c is pushed onto the stack
+
+phc 29
+
+pla (pull a)
+
+a is popped from the stack
+
+pla 39
+
+plb (pull b)
+
+b is popped from the stack
+
+plb 49
+
+plc (pull c)
+
+c is popped from the stack
+
+plc 59
+
+ret (return)
+
+pc is popped off of the stack
+
+ret A0
+
+rol (rotate left) ZC
+
+Move all bits in reg/mem one position left.
+Bit 0 is set to the carry flag.
+The carry flag is set to the old bit 7.
+
+rol a D0
+rol b D1
+rol c D2
+rol abs D4
+rol abs,i D5
+rol (ind) D6
+rol (ind),i D7
+
+ror (rotate right) ZC
+
+Move all bits in reg/mem one position left.
+Bit 7 is set to the carry flag.
+The carry flag is set to the old bit 0.
+
+ror a E0
+ror b E1
+ror c E2
+ror abs E4
+ror abs,i E5
+ror (ind) E6
+ror (ind),i E7
+
+sbc (subtract with carry) ZC
+
+a = a - op - (1 - carry)
+
+sbc b A1
+sbc c A2
+sbc imd A3
+sbc abs A4
+sbc abs,i A5
+sbc (ind) A6
+sbd (ind),i A7
+
+sec (set carry)
+
+carry = 1
+
+sec 10
+
+sta (store a)
+
+mem = a
+
+sta abs DC
+sta abs,i DD
+sta (ind) DE
+sta (ind),i DF
+
+stb (store b)
+
+mem = b
+
+stb abs CC
+stb abs,i CD
+stb (ind) CE
+stb (ind),i CF
+
+stc (store c)
+
+mem = c
+
+stc abs BC
+stc abs,i BD
+stc (ind) BE
+stc (ind),i BF
+
+
+tab (transfer a to b)
+
+b = a
+
+tab 08
+
+tac (transfer a to c)
+
+c = a
+
+tac 18
+
+tai (transfer a to i)
+
+i = a
+
+tai 28
+
+tba (transfer b to a)
+
+a = b
+
+tba 38
+
+tbc (transfer b to c)
+
+c = b
+
+tbc 48
+
+tca (transfer c to a)
+
+a = c
+
+tca 58
+
+tcb (transfer c to b)
+
+b = c
+
+tcb 68
+
+tia (transfer i to a)
+
+a = i
+
+tia 78
+
+xor (bitwise exclusive or) Z
+
+a = a ^ op
+
+xor b 11
+xor c 12
+xor imd 13
+xor abs 14
+xor abs,i 15
+xor (ind) 16
+xor (ind),i 17
+
+
