@@ -33,7 +33,7 @@ OPCODES = {
     'rol': {'a': 'D0', 'b': 'D1', 'c': 'D2', 'abs': 'D4', 'abs,i': 'D5', '(ind)': 'D6', '(ind),i': 'D7'},
     'ror': {'a': 'E0', 'b': 'E1', 'c': 'E2', 'abs': 'E4', 'abs,i': 'E5', '(ind)': 'E6', '(ind),i': 'E7'},
     'sbc': {'b': 'A1', 'c': 'A2', 'imd': 'A3', 'abs': 'A4', 'abs,i': 'A5', '(ind)': 'A6', '(ind),i': 'A7'},
-    'sec': {'imp': '10'},
+    'sec': {'imp': 'F0'},
     'sta': {'abs': 'DC', 'abs,i': 'DD', '(ind)': 'DE', '(ind),i': 'DF'},
     'stb': {'abs': 'CC', 'abs,i': 'CD', '(ind)': 'CE', '(ind),i': 'CF'},
     'stc': {'abs': 'BC', 'abs,i': 'BD', '(ind)': 'BE', '(ind),i': 'BF'},
@@ -50,12 +50,17 @@ OPCODES = {
 
 
 def map_little_endian(input_line: str, num_bytes: int = 2) -> str:
-    # Values are written as $ followed by hex digits
-    digits = input_line[1:]
-    if not input_line.startswith('$') or not digits or any(d not in '0123456789abcdefABCDEF' for d in digits):
-        raise ValueError(f"'{input_line}' is not a hex value like $1F")
+    # Values are written as $ followed by hex digits, or as plain decimal digits
+    if input_line.startswith('$'):
+        digits = input_line[1:]
+        if not digits or any(d not in '0123456789abcdefABCDEF' for d in digits):
+            raise ValueError(f"'{input_line}' is not a hex value like $1F")
+        value = int(digits, 16)
+    else:
+        if not input_line or any(d not in '0123456789' for d in input_line):
+            raise ValueError(f"'{input_line}' is not a hex value like $1F or a decimal value like 31")
+        value = int(input_line)
 
-    value = int(digits, 16)
     if value >= 256 ** num_bytes:
         raise ValueError(f"'{input_line}' does not fit in {num_bytes} byte(s)")
 
@@ -95,6 +100,9 @@ def map_line(input_line: list[str]) -> str:
 
     operand = input_line[1] if len(input_line) == 2 else ''
     mode, value = get_mode(operand)
+    # A single digit is only a bit number for bit, otherwise it is a decimal address
+    if mode.isdigit() and mnemonic != 'bit':
+        mode, value = 'abs', operand
     opcodes = OPCODES[mnemonic]
     if mode not in opcodes:
         raise ValueError(f"'{mnemonic}' does not support the {mode} addressing mode "
