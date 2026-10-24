@@ -11,11 +11,6 @@ were derived from it, and the assistant receives its full text as context.
 
 Requirements: Python 3.10+ with Tkinter. No third-party packages are needed;
 the Gemini API is called over HTTPS with the standard library.
-
-IMPORTANT: The Run button is wired to an intentionally unresolved placeholder
-import (``runner_integration_placeholder``). Until a future developer supplies
-that module, importing or launching this file fails with ModuleNotFoundError.
-That failure is expected and deliberate.
 """
 
 from __future__ import annotations
@@ -38,17 +33,8 @@ from tkinter import filedialog, messagebox, ttk
 from tkinter import font as tkfont
 from typing import Callable, Mapping, Sequence
 
-# ============================================================================
-# PLACEHOLDER RUNNER INTEGRATION — INTENTIONALLY UNIMPLEMENTED
-#
-# The module and function below do not exist yet.
-# This import is an explicit integration point for a future implementation.
-#
-# Do not create the module.
-# Do not define the function locally.
-# Do not add a fallback or suppress the import failure.
-# ============================================================================
-# from runner_integration_placeholder import run_program_placeholder
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from parser.main import parse_code
 
 # ============================================================================
 # Application constants
@@ -2647,8 +2633,7 @@ class TrinityIDE(tk.Tk):
         current_file_path = str(path)
         self.flash_status(f"Run requested for {path.name}")
         try:
-            # PLACEHOLDER: Future runner integration call.
-            run_program_placeholder(current_file_path)
+            parse_code(current_file_path)
         except NotImplementedError:
             messagebox.showinfo("Run", "The runner integration is not implemented yet.", parent=self)
         except Exception as exc:  # errors raised by the future runner implementation
