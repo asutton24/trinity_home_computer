@@ -86,14 +86,14 @@ class CPU:
         ptr = self.mem.read16(self.pc)
         self.pc = (self.pc + 1) & 0xFFFF
         ptr_2 = self.mem.read16(ptr)
-        return self.mem.read8((ptr2 + self.i) & 0xFFFF)
+        return self.mem.read8((ptr_2 + self.i) & 0xFFFF)
     
     def write_ind_i(self, val):
         self.pc = (self.pc + 1) & 0xFFFF
         ptr = self.mem.read16(self.pc)
         self.pc = (self.pc + 1) & 0xFFFF
         ptr_2 = self.mem.read16(ptr)
-        return self.mem.write8((ptr2 + self.i) & 0xFFFF, val)
+        return self.mem.write8((ptr_2 + self.i) & 0xFFFF, val)
     
     def cycle(self):
         if self.halted:
