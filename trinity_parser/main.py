@@ -64,6 +64,23 @@ OPCODES = {
     'xor': {'b': '11', 'c': '12', 'imd': '13', 'abs': '14', 'abs,i': '15', '(ind)': '16', '(ind),i': '17'},
 }
 
+_LABEL_DEFINITION = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):(?:\s*(.*))?$")
+_LABEL_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_JUMP_MNEMONICS = {"jcc", "jcs", "jeq", "jne", "jmp", "jsr"}
+
+
+def _jump_label_operand(mnemonic: str, operand: str) -> tuple[str, str] | None:
+    if operand.startswith("(") and operand.endswith(")"):
+        mode, label = "(ind)", operand[1:-1]
+    else:
+        mode, label = "abs", operand
+
+    if (mnemonic.lower() not in _JUMP_MNEMONICS
+            or (mode == "(ind)" and mnemonic.lower() != "jmp")
+            or not _LABEL_NAME.fullmatch(label)):
+        return None
+    return mode, label
+
 
 def map_little_endian(input_line: str, num_bytes: int = 2) -> str:
     # Values are written as $ followed by hex digits, or as plain decimal digits
@@ -201,7 +218,38 @@ def parse_code(input: str, start_address: int = 0) -> str:
         except ValueError as exc:
             raise ValueError(f"Line {line_number}: {exc}") from exc
 
-    return ''.join(output_lines)
+        entries.append((line_number, current_address, "instruction", source_line))
+        current_address += instruction_length
+        has_emitted_data = True
+        if current_address > 0x10000:
+            raise ValueError(f"Line {line_number}: program exceeds the 16-bit address space.")
+
+    image = bytearray()
+    image_cursor = image_start
+    for line_number, address, entry_type, contents in entries:
+        if address < image_cursor:
+            raise ValueError(f"Line {line_number}: emitted data overlaps an earlier .org region.")
+        image.extend(bytes(address - image_cursor))
+        try:
+            if entry_type == "bytes":
+                encoded = contents
+            else:
+                resolved_instruction = _instruction_with_label_address(str(contents), labels)
+                encoded = bytes.fromhex(map_line(resolved_instruction.split()))
+        except KeyError as exc:
+            raise ValueError(f"Line {line_number}: undefined label '{exc.args[0]}'.") from exc
+        except ValueError as exc:
+            raise ValueError(f"Line {line_number}: {exc}") from exc
+        image.extend(encoded)
+        image_cursor = address + len(encoded)
+
+    return image_start, bytes(image)
+
+
+def parse_code(input: str, start_address: int = 0) -> str:
+    """Assemble source, including .bytes/.org directives, into machine-code hex."""
+    _, machine_code = _assemble(input, start_address)
+    return machine_code.hex().upper()
 
 
 def parse_into_memory(input: str, memory: WritableMemory, start_address: int = 0) -> int:
@@ -217,7 +265,7 @@ def parse_file(source_path: str) -> str:
         raise FileNotFoundError(f"Source file not found: {source_path}")
 
     with open(source_path, encoding='utf-8') as source_file:
-        machine_code = parse_code(source_file.read())
+        _, machine_code = _assemble(source_file.read(), start_address)
 
     project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     output_dir = os.path.join(project_dir, 'bin')
@@ -225,7 +273,7 @@ def parse_file(source_path: str) -> str:
     output_name = os.path.splitext(os.path.basename(source_path))[0] + '.bin'
     output_path = os.path.join(output_dir, output_name)
     with open(output_path, 'wb') as output_file:
-        output_file.write(bytes.fromhex(machine_code))
+        output_file.write(machine_code)
 
     return output_path
 
