@@ -40,7 +40,27 @@ class Memory:
             if b.low <= addr and b.high >= addr:
                 return b.write(addr, val)
 
+    def load_bytes(self, addr, values):
+        """Load bytes into mapped writable memory without wrapping addresses."""
+        values = bytes(values)
+        end_addr = addr + len(values)
+        if addr < 0 or end_addr > 0x10000:
+            raise ValueError("Program does not fit in the 16-bit address space.")
+
+        banks = []
+        for current_addr in range(addr, end_addr):
+            bank = next((b for b in self.banks if b.low <= current_addr <= b.high), None)
+            if bank is None:
+                raise ValueError(f"Address ${current_addr:04X} is not mapped to memory.")
+            if bank.mode != 'rw':
+                raise ValueError(f"Address ${current_addr:04X} is not writable memory.")
+            banks.append(bank)
+
+        for current_addr, value, bank in zip(range(addr, end_addr), values, banks):
+            bank.write(current_addr, value)
+
+        return len(values)
+
     def write16(self, addr, val):
         self.write8(addr, val % 256)
         self.write8((addr + 1) & 0xFFFF, (val // 256) % 256)
-
