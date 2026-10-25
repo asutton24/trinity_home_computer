@@ -7,7 +7,8 @@ import os
 import sys
 from input_checker import get_input_state
 
-def main():
+
+def main(program_path=None):
     pygame.init()
 
     mem = Memory()
@@ -78,5 +79,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
-
+    if len(sys.argv) > 2:
+        sys.exit(f"Usage: python {os.path.basename(__file__)} [program.bin]")
+    main(sys.argv[1] if len(sys.argv) == 2 else None)
