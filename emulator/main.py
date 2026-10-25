@@ -27,7 +27,7 @@ def main():
 
     # Program to run: python main.py breakout_game.bin (default snake.bin),
     # looked up next to this file unless a full path is given
-    program = sys.argv[1] if len(sys.argv) > 1 else "snake.bin"
+    program = sys.argv[1] if len(sys.argv) > 1 else "doom.bin"
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), program), "rb") as f:
         data = list(f.read())
 

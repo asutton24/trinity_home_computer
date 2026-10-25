@@ -1,0 +1,6 @@
+# Install with: pip install -r requirements.txt
+# Tkinter (used by the IDE) ships with Python and is not installed from here.
+# The IDE calls the Gemini API with the standard library, so it needs no packages.
+
+# Window, input and rendering for the emulator.
+pygame>=2.6.1
