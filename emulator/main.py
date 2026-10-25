@@ -4,9 +4,11 @@ from cpu import CPU
 import time
 from video_emulation import video_emulation, text_mode_emulation, half_emulation
 import os
+import sys
 from input_checker import get_input_state
 
-def main():
+
+def main(program_path=None):
     pygame.init()
 
     mem = Memory()
@@ -24,7 +26,9 @@ def main():
     mem.write8(3, 0x00)
     mem.write8(4, 0x80)
 
-    with open("snake.bin", "rb") as f:
+    if program_path is None:
+        program_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "snake.bin")
+    with open(program_path, "rb") as f:
         data = list(f.read())
 
     for i in range(len(data)):
@@ -54,10 +58,17 @@ def main():
             half_emulation(surface, mem)
         inp = get_input_state()
         if inp[0]:
-            mem.write8(0x9003, ord(inp[1]))
+            if inp[1]:                      # arrows, Shift etc. have no character
+                mem.write8(0x9003, ord(inp[1]))
             mem.write8(0x9004, 1)
         else:
             mem.write8(0x9004, 0)
+
+        # Joystick 0 ($9005): arrow keys and Ctrl as bits XXXUDLRC
+        keys = pygame.key.get_pressed()
+        mem.write8(0x9005, (keys[pygame.K_UP] << 4) | (keys[pygame.K_DOWN] << 3)
+                   | (keys[pygame.K_LEFT] << 2) | (keys[pygame.K_RIGHT] << 1)
+                   | (keys[pygame.K_LCTRL] or keys[pygame.K_RCTRL]))
 
         mem.write8(0x9001, (mem.read8(0x9001) + 1) & 0xFF)
         screen.blit(surface, (0, 0))
@@ -67,5 +78,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
-
+    if len(sys.argv) > 2:
+        sys.exit(f"Usage: python {os.path.basename(__file__)} [program.bin]")
+    main(sys.argv[1] if len(sys.argv) == 2 else None)

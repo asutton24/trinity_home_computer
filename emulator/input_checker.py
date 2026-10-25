@@ -12,7 +12,7 @@ PRINTABLE_KEYS = [ord(c) for c in " abcdefghijklmnopqrstuvwxyz" + UNSHIFTED]
 def get_input_state() -> tuple[bool, str]:
     pressed = pygame.key.get_pressed()
 
-    if not any(pressed):
+    if True not in pressed:        # works in both pygame and pygame-ce
         return (False, "")
 
     for key in PRINTABLE_KEYS:
