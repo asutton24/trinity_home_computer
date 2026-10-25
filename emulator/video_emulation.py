@@ -2,8 +2,8 @@ import os
 
 import pygame
 
-from emulator.memory import Memory
-from emulator.palette import PALETTE
+from memory import Memory
+from palette import PALETTE
 
 VRAM_START = 0x8000
 
