@@ -4,9 +4,11 @@ from cpu import CPU
 import time
 from video_emulation import video_emulation, text_mode_emulation, half_emulation
 import os
+import sys
 from input_checker import get_input_state
 
-def main():
+
+def main(program_path=None):
     pygame.init()
 
     mem = Memory()
@@ -24,7 +26,9 @@ def main():
     mem.write8(3, 0x00)
     mem.write8(4, 0x80)
 
-    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "snake.bin"), "rb") as f:
+    if program_path is None:
+        program_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "snake.bin")
+    with open(program_path, "rb") as f:
         data = list(f.read())
 
     for i in range(len(data)):
@@ -74,5 +78,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
-
+    if len(sys.argv) > 2:
+        sys.exit(f"Usage: python {os.path.basename(__file__)} [program.bin]")
+    main(sys.argv[1] if len(sys.argv) == 2 else None)
