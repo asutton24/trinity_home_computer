@@ -59,14 +59,14 @@ def main() -> None:
         parse_into_memory(branch_source, branch_memory)
         branch_cpu = CPU(branch_memory)
         setattr(branch_cpu, flag_name, flag_value)
-        branch_cpu.step()
+        branch_cpu.cycle()
         assert branch_cpu.pc == (4 if taken else 3), (mnemonic, flag_value, branch_cpu.pc)
     print("Conditional jumps:         JCC, JCS, JEQ, JNE taken/not-taken passed")
 
     direct_memory = make_ram()
     parse_into_memory("jmp target\nhlt\ntarget: hlt\n", direct_memory)
     direct_cpu = CPU(direct_memory)
-    direct_cpu.step()
+    direct_cpu.cycle()
     assert direct_cpu.pc == 4
     print("Direct JMP:                jumped to label at $0004")
 
@@ -74,9 +74,10 @@ def main() -> None:
     subroutine_memory = make_ram()
     parse_into_memory(subroutine_source, subroutine_memory)
     subroutine_cpu = CPU(subroutine_memory)
-    subroutine_cpu.step()
+    subroutine_cpu.sp = 0x7FFF
+    subroutine_cpu.cycle()
     assert subroutine_cpu.pc == 4
-    subroutine_cpu.step()
+    subroutine_cpu.cycle()
     assert subroutine_cpu.pc == 3
     assert subroutine_cpu.sp == 0x7FFF
     print("JSR/RET:                   called subroutine and returned to $0003")
@@ -85,7 +86,7 @@ def main() -> None:
     indirect_memory.load_bytes(0, bytes.fromhex(parse_code("jmp ($0100)\nhlt\n")))
     indirect_memory.write16(0x0100, 4)
     indirect_cpu = CPU(indirect_memory)
-    indirect_cpu.step()
+    indirect_cpu.cycle()
     assert indirect_cpu.pc == 4
     print("Indirect JMP:              jumped through pointer at $0100 to $0004")
     print("Result: PASS")
