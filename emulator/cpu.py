@@ -192,6 +192,7 @@ class CPU:
                 if self.zero:
                     self.pc = self.mem.read16((self.pc + 1) & 0xFFFF)
                     return
+                self.pc = (self.pc + 2) & 0xFFFF
             case 0x43:
                 self.b = self.fetch_immediate()
                 self.zero = 1 if self.b == 0 else 0
@@ -217,6 +218,7 @@ class CPU:
                 if not self.zero:
                     self.pc = self.mem.read16((self.pc + 1) & 0xFFFF)
                     return
+                self.pc = (self.pc + 2) & 0xFFFF
             case 0x53:
                 self.c = self.fetch_immediate()
                 self.zero = 1 if self.c == 0 else 0
@@ -241,6 +243,7 @@ class CPU:
                 if not self.carry:
                     self.pc = self.mem.read16((self.pc + 1) & 0xFFFF)
                     return
+                self.pc = (self.pc + 2) & 0xFFFF
             case 0x63:
                 self.i = self.fetch_immediate()
                 self.zero = 1 if self.i == 0 else 0
@@ -256,6 +259,7 @@ class CPU:
                 if self.carry:
                     self.pc = self.mem.read16((self.pc + 1) & 0xFFFF)
                     return
+                self.pc = (self.pc + 2) & 0xFFFF
             case 0x73:
                 self.sp = self.fetch_immediate() + 256 * self.fetch_immediate()
             case 0x78:
@@ -698,4 +702,3 @@ class CPU:
                 self.pc = (self.pc - 2) & 0xFFFF
                 self.write_ind_i(val)
         self.pc = (self.pc + 1) & 0xFFFF
-

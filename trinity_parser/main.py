@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 
 # Opcode of every instruction for each addressing mode it supports (from specification.txt)
@@ -52,6 +53,23 @@ OPCODES = {
     'tia': {'imp': '78'},
     'xor': {'b': '11', 'c': '12', 'imd': '13', 'abs': '14', 'abs,i': '15', '(ind)': '16', '(ind),i': '17'},
 }
+
+_LABEL_DEFINITION = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):(?:\s*(.*))?$")
+_LABEL_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_JUMP_MNEMONICS = {"jcc", "jcs", "jeq", "jne", "jmp", "jsr"}
+
+
+def _jump_label_operand(mnemonic: str, operand: str) -> tuple[str, str] | None:
+    if operand.startswith("(") and operand.endswith(")"):
+        mode, label = "(ind)", operand[1:-1]
+    else:
+        mode, label = "abs", operand
+
+    if (mnemonic.lower() not in _JUMP_MNEMONICS
+            or (mode == "(ind)" and mnemonic.lower() != "jmp")
+            or not _LABEL_NAME.fullmatch(label)):
+        return None
+    return mode, label
 
 
 def map_little_endian(input_line: str, num_bytes: int = 2) -> str:
@@ -121,31 +139,92 @@ def map_line(input_line: list[str]) -> str:
     return opcodes[mode] + map_little_endian(value)
 
 
-def parse_code(input: str) -> str:
-    """Assemble source text and return its machine code as hexadecimal text."""
-    input_lines = input.splitlines()
-    output_lines = []
+def _instruction_with_label_address(instruction: str, labels: dict[str, int]) -> str:
+    parts = instruction.split()
+    if len(parts) != 2 or parts[0].lower() not in _JUMP_MNEMONICS:
+        return instruction
 
-    for line_number, input_line in enumerate(input_lines, start=1):
-        stripped_line = input_line.strip()
-        if not stripped_line or stripped_line.startswith(';'):
+    label_operand = _jump_label_operand(parts[0], parts[1])
+    if label_operand is None:
+        return instruction
+
+    mode, label = label_operand
+    address = labels[label.lower()]
+    encoded_address = f"${address:04X}"
+    parts[1] = f"({encoded_address})" if mode == "(ind)" else encoded_address
+    return " ".join(parts)
+
+
+def _placeholder_label_address(instruction: str) -> str:
+    parts = instruction.split()
+    if len(parts) != 2 or parts[0].lower() not in _JUMP_MNEMONICS:
+        return instruction
+
+    label_operand = _jump_label_operand(parts[0], parts[1])
+    if label_operand is not None:
+        mode = label_operand[0]
+        parts[1] = "($0000)" if mode == "(ind)" else "$0000"
+    return " ".join(parts)
+
+
+def parse_code(input: str, start_address: int = 0) -> str:
+    """Assemble source text and resolve jump labels from its load address."""
+    if not 0 <= start_address <= 0xFFFF:
+        raise ValueError("Start address must be between $0000 and $FFFF.")
+
+    labels: dict[str, int] = {}
+    instructions: list[tuple[int, str]] = []
+    current_address = start_address
+
+    for line_number, input_line in enumerate(input.splitlines(), start=1):
+        source_line = input_line.split(";", 1)[0].strip()
+        if not source_line:
             continue
+
+        label_match = _LABEL_DEFINITION.fullmatch(source_line)
+        if label_match:
+            label = label_match.group(1).lower()
+            if label in labels:
+                raise ValueError(f"Line {line_number}: duplicate label '{label_match.group(1)}'.")
+            if current_address > 0xFFFF:
+                raise ValueError(f"Line {line_number}: label is outside the 16-bit address space.")
+            labels[label] = current_address
+            source_line = label_match.group(2) or ""
+            if not source_line:
+                continue
+
+        placeholder_instruction = _placeholder_label_address(source_line)
         try:
-            output_lines.append(map_line(stripped_line.split()))
+            instruction_length = len(map_line(placeholder_instruction.split())) // 2
         except ValueError as exc:
             raise ValueError(f"Line {line_number}: {exc}") from exc
 
-    return ''.join(output_lines)
+        instructions.append((line_number, source_line))
+        current_address += instruction_length
+        if current_address > 0x10000:
+            raise ValueError(f"Line {line_number}: program exceeds the 16-bit address space.")
+
+    output_lines = []
+    for line_number, instruction in instructions:
+        try:
+            resolved_instruction = _instruction_with_label_address(instruction, labels)
+            output_lines.append(map_line(resolved_instruction.split()))
+        except KeyError as exc:
+            raise ValueError(f"Line {line_number}: undefined label '{exc.args[0]}'.") from exc
+        except ValueError as exc:
+            raise ValueError(f"Line {line_number}: {exc}") from exc
+
+    return "".join(output_lines)
 
 
-def parse_file(source_path: str) -> str:
-    """Assemble a source file, write its output in the project bin directory, and return its path."""
+def parse_file(source_path: str, start_address: int = 0) -> str:
+    """Assemble a source file using its load address for labels, write the .bin, and return its path."""
     source_path = os.path.abspath(source_path)
     if not os.path.isfile(source_path):
         raise FileNotFoundError(f"Source file not found: {source_path}")
 
     with open(source_path, encoding='utf-8') as source_file:
-        machine_code = parse_code(source_file.read())
+        machine_code = parse_code(source_file.read(), start_address)
 
     project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     output_dir = os.path.join(project_dir, 'bin')
