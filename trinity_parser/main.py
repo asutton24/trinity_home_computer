@@ -167,14 +167,40 @@ def _placeholder_label_address(instruction: str) -> str:
     return " ".join(parts)
 
 
-def parse_code(input: str, start_address: int = 0) -> str:
-    """Assemble source text and resolve jump labels from its load address."""
+def _parse_integer(value: str, directive: str) -> int:
+    try:
+        if value.startswith("$"):
+            digits = value[1:]
+            if not digits or any(digit not in "0123456789abcdefABCDEF" for digit in digits):
+                raise ValueError
+            return int(digits, 16)
+        if not value or any(digit not in "0123456789" for digit in value):
+            raise ValueError
+        return int(value)
+    except ValueError:
+        raise ValueError(f"{directive} expects a hexadecimal ($NNNN) or decimal value.") from None
+
+
+def _parse_byte_directive(operands: str) -> bytes:
+    values = [value.strip() for value in operands.split(",")]
+    if len(values) != 2 or any(not value for value in values):
+        raise ValueError(".bytes expects exactly two comma-separated byte values.")
+    parsed_values = [_parse_integer(value, ".bytes") for value in values]
+    if any(value > 0xFF for value in parsed_values):
+        raise ValueError(".bytes values must be between $00 and $FF.")
+    return bytes(parsed_values)
+
+
+def _assemble(input: str, start_address: int = 0) -> tuple[int, bytes]:
+    """Assemble source into a binary image and return its load address."""
     if not 0 <= start_address <= 0xFFFF:
         raise ValueError("Start address must be between $0000 and $FFFF.")
 
     labels: dict[str, int] = {}
-    instructions: list[tuple[int, str]] = []
+    entries: list[tuple[int, int, str, str | bytes]] = []
     current_address = start_address
+    image_start = start_address
+    has_emitted_data = False
 
     for line_number, input_line in enumerate(input.splitlines(), start=1):
         source_line = input_line.split(";", 1)[0].strip()
@@ -193,28 +219,72 @@ def parse_code(input: str, start_address: int = 0) -> str:
             if not source_line:
                 continue
 
+        parts = source_line.split(None, 1)
+        directive = parts[0].lower()
+        operands = parts[1].strip() if len(parts) == 2 else ""
+        if directive == ".org":
+            if not operands or len(operands.split()) != 1:
+                raise ValueError(f"Line {line_number}: .org expects one address.")
+            new_address = _parse_integer(operands, ".org")
+            if not 0 <= new_address <= 0xFFFF:
+                raise ValueError(f"Line {line_number}: .org address must be between $0000 and $FFFF.")
+            if not has_emitted_data:
+                image_start = new_address
+            elif new_address < current_address:
+                raise ValueError(f"Line {line_number}: .org cannot move backward over emitted data.")
+            current_address = new_address
+            continue
+
+        if directive == ".bytes":
+            try:
+                values = _parse_byte_directive(operands)
+            except ValueError as exc:
+                raise ValueError(f"Line {line_number}: {exc}") from exc
+            entries.append((line_number, current_address, "bytes", values))
+            current_address += len(values)
+            has_emitted_data = True
+            if current_address > 0x10000:
+                raise ValueError(f"Line {line_number}: program exceeds the 16-bit address space.")
+            continue
+
         placeholder_instruction = _placeholder_label_address(source_line)
         try:
             instruction_length = len(map_line(placeholder_instruction.split())) // 2
         except ValueError as exc:
             raise ValueError(f"Line {line_number}: {exc}") from exc
 
-        instructions.append((line_number, source_line))
+        entries.append((line_number, current_address, "instruction", source_line))
         current_address += instruction_length
+        has_emitted_data = True
         if current_address > 0x10000:
             raise ValueError(f"Line {line_number}: program exceeds the 16-bit address space.")
 
-    output_lines = []
-    for line_number, instruction in instructions:
+    image = bytearray()
+    image_cursor = image_start
+    for line_number, address, entry_type, contents in entries:
+        if address < image_cursor:
+            raise ValueError(f"Line {line_number}: emitted data overlaps an earlier .org region.")
+        image.extend(bytes(address - image_cursor))
         try:
-            resolved_instruction = _instruction_with_label_address(instruction, labels)
-            output_lines.append(map_line(resolved_instruction.split()))
+            if entry_type == "bytes":
+                encoded = contents
+            else:
+                resolved_instruction = _instruction_with_label_address(str(contents), labels)
+                encoded = bytes.fromhex(map_line(resolved_instruction.split()))
         except KeyError as exc:
             raise ValueError(f"Line {line_number}: undefined label '{exc.args[0]}'.") from exc
         except ValueError as exc:
             raise ValueError(f"Line {line_number}: {exc}") from exc
+        image.extend(encoded)
+        image_cursor = address + len(encoded)
 
-    return "".join(output_lines)
+    return image_start, bytes(image)
+
+
+def parse_code(input: str, start_address: int = 0) -> str:
+    """Assemble source, including .bytes/.org directives, into machine-code hex."""
+    _, machine_code = _assemble(input, start_address)
+    return machine_code.hex().upper()
 
 
 def parse_file(source_path: str, start_address: int = 0) -> str:
@@ -224,7 +294,7 @@ def parse_file(source_path: str, start_address: int = 0) -> str:
         raise FileNotFoundError(f"Source file not found: {source_path}")
 
     with open(source_path, encoding='utf-8') as source_file:
-        machine_code = parse_code(source_file.read(), start_address)
+        _, machine_code = _assemble(source_file.read(), start_address)
 
     project_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     output_dir = os.path.join(project_dir, 'bin')
@@ -232,7 +302,7 @@ def parse_file(source_path: str, start_address: int = 0) -> str:
     output_name = os.path.splitext(os.path.basename(source_path))[0] + '.bin'
     output_path = os.path.join(output_dir, output_name)
     with open(output_path, 'wb') as output_file:
-        output_file.write(bytes.fromhex(machine_code))
+        output_file.write(machine_code)
 
     return output_path
 
