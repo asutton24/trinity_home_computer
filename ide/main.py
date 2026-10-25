@@ -34,7 +34,7 @@ from tkinter import font as tkfont
 from typing import Callable, Mapping, Sequence
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from assembler.main import parse_file
+from assembler.main import parse_code, parse_file
 
 # ============================================================================
 # Application constants
@@ -54,10 +54,15 @@ SOURCE_FILETYPES = [("Trinity assembly source", "*.s")]
 DEFAULT_FILE_NAME = "untitled.s"
 INDENT_WIDTH = 4
 
-GEMINI_MODEL = "gemini-3.1-flash-lite"
+# Gemini 3.8 Flash is the most capable model on the Gemini API free tier (Pro models are paid only).
+GEMINI_MODEL = "gemini-3.8-flash"
 GEMINI_API_ROOT = "https://generativelanguage.googleapis.com/v1beta"
 GEMINI_KEY_VARIABLE = "GEMINI_API_KEY"
-GEMINI_TIMEOUT_SECONDS = 120.0
+# Gemini thinks before it replies and sends nothing until it finishes, so long programs can take several minutes.
+GEMINI_TIMEOUT_SECONDS = 600.0
+# Proposed edits are checked against the specification and the assembler; when either finds a problem,
+# the errors are sent back to Gemini for a corrected program, up to this many extra requests per message.
+GEMINI_MAX_FIX_ROUNDS = 3
 
 MAX_PROPOSED_SOURCE_CHARS = 500_000
 
@@ -809,7 +814,7 @@ def gemini_error_from_http(status: int, body: str, retry_after: str | None, mode
         return GeminiError("Model unavailable",
                            f"The model '{model}' was not found or is not available to this API key. "
                            "The IDE does not switch to a different model automatically; confirm that your "
-                           "key has access to Gemini 3.1 Flash Lite." + (f"\nDetails: {message}" if message else ""))
+                           f"key has access to {model}." + (f"\nDetails: {message}" if message else ""))
     if status == 429:
         wait = f" Try again in about {retry_after} seconds." if retry_after else " Wait a moment and try again."
         return GeminiError("Rate limit reached", "Gemini's rate limit or quota for this key was exceeded." + wait)
@@ -972,6 +977,34 @@ def parse_assistant_reply(text: str) -> AssistantReply:
     if _CONTROL_CHARS_RE.search(source):
         raise ValueError("The proposed edit contained control characters, so it was rejected.")
     return AssistantReply("edit", message or "Proposed changes to the current file.", source)
+
+
+# ============================================================================
+# Iterative fixing: proposed edits are checked locally and sent back to Gemini until they assemble
+# ============================================================================
+
+
+def find_program_errors(source: str, limit: int = 20) -> list[str]:
+    """Problems that stop a proposed program from being valid: specification violations, then assembler errors."""
+    examples, total = find_spec_problems(source, limit)
+    if total > len(examples):
+        examples.append(f"...and {total - len(examples)} more lines with the same kinds of problems.")
+    if examples:
+        return examples
+    try:
+        parse_code(source)
+    except ValueError as exc:
+        return [f"Assembler: {exc}"]
+    return []
+
+
+def build_fix_message(errors: Sequence[str]) -> str:
+    listed = "\n".join(f"- {error}" for error in errors)
+    return ("[Automatic check by the IDE, not written by the user] Your proposed program has these problems:\n"
+            f"{listed}\n\n"
+            "Fix every one of them and reply with kind \"edit\" and the COMPLETE corrected file. Use only what the "
+            "specification defines, recompute any jump or subroutine addresses that move, and keep everything "
+            "else that already works. In \"message\", explain the original change as well as these fixes.")
 
 
 def build_system_instruction(spec_text: str) -> str:
@@ -1847,6 +1880,7 @@ class ChatSidebar(tk.Frame):
         self._busy = False
         self._busy_step = 0
         self._busy_after: str | None = None
+        self._busy_text = "Waiting for Gemini"
         self._link_count = 0
 
         header = tk.Frame(self, bg=THEME["panel"], padx=12, pady=8)
@@ -1855,7 +1889,7 @@ class ChatSidebar(tk.Frame):
         titles.pack(side="left", fill="x", expand=True)
         tk.Label(titles, text="AI Assistant", font=fonts.ui_title, bg=THEME["panel"],
                  fg=THEME["text"], anchor="w").pack(fill="x")
-        tk.Label(titles, text=f"Gemini 3.1 Flash Lite · {GEMINI_MODEL}", font=fonts.ui_small, bg=THEME["panel"],
+        tk.Label(titles, text=GEMINI_MODEL, font=fonts.ui_small, bg=THEME["panel"],
                  fg=THEME["text_faint"], anchor="w").pack(fill="x")
         tk.Frame(self, bg=THEME["border"], height=1).pack(side="top", fill="x")
 
@@ -1951,13 +1985,17 @@ class ChatSidebar(tk.Frame):
             self._busy_after = None
         if busy:
             self._busy_step = 0
+            self._busy_text = "Waiting for Gemini"
             self._animate_busy()
         else:
             self.busy_label.configure(text="")
 
+    def set_busy_text(self, text: str) -> None:
+        self._busy_text = text
+
     def _animate_busy(self) -> None:
         dots = "." * (self._busy_step % 4)
-        self.busy_label.configure(text=f"●  Waiting for Gemini{dots}")
+        self.busy_label.configure(text=f"●  {self._busy_text}{dots}")
         self._busy_step += 1
         self._busy_after = self.after(400, self._animate_busy)
 
@@ -2651,7 +2689,9 @@ class TrinityIDE(tk.Tk):
             "notice",
             "Ask about Trinity instructions, debug your program, or ask for changes to the open file. "
             "Proposed edits are shown as a diff for you to review before anything changes, and nothing "
-            f"is saved automatically. Messages are sent to Google's Gemini API ({GEMINI_MODEL}) over the internet.")
+            f"is saved automatically. Messages are sent to Google's Gemini API ({GEMINI_MODEL}) over the internet. "
+            "Proposed edits are checked against the specification and the assembler, and Gemini is asked to "
+            "fix any errors before you see them.")
         if self.spec_error:
             self.sidebar.add_message("error", self.spec_error + " The assistant needs it to understand the "
                                               "language. Restore the file and send your message again.")
@@ -2688,6 +2728,8 @@ class TrinityIDE(tk.Tk):
             text = self.gemini.generate(api_key, request.system_instruction, request.contents,
                                         ASSISTANT_RESPONSE_SCHEMA)
             reply = parse_assistant_reply(text)
+            if reply.kind == "edit":
+                text, reply = self._fix_edit_iteratively(request, api_key, text, reply)
         except GeminiError as exc:
             self._results.put(("error", request, message, exc.title, exc.detail))
         except ValueError as exc:
@@ -2699,10 +2741,51 @@ class TrinityIDE(tk.Tk):
         else:
             self._results.put(("ok", request, message, text, reply))
 
+    def _fix_edit_iteratively(self, request: AssistantRequest, api_key: str, text: str,
+                              reply: AssistantReply) -> tuple[str, AssistantReply]:
+        """Send a proposed edit's errors back to Gemini until it is clean or the rounds run out.
+
+        Returns the raw model text (recorded in the history so later turns build on it) and the reply to show.
+        A failed repair request keeps the last proposal rather than discarding it.
+        """
+        contents = list(request.contents)
+        errors = find_program_errors(reply.source or "")
+        rounds = 0
+        while errors and rounds < GEMINI_MAX_FIX_ROUNDS:
+            rounds += 1
+            self._results.put(("progress", f"Gemini is fixing {len(errors)} problem(s), "
+                                           f"pass {rounds}/{GEMINI_MAX_FIX_ROUNDS}"))
+            contents += [{"role": "model", "parts": [{"text": text}]},
+                         {"role": "user", "parts": [{"text": build_fix_message(errors)}]}]
+            try:
+                fixed_text = self.gemini.generate(api_key, request.system_instruction, contents,
+                                                  ASSISTANT_RESPONSE_SCHEMA)
+                fixed = parse_assistant_reply(fixed_text)
+            except (GeminiError, ValueError) as exc:
+                reason = f"{exc.title}: {exc.detail}" if isinstance(exc, GeminiError) else str(exc)
+                note = f"Automatic fixing stopped ({reason}); the last proposal is shown with its problems."
+                return text, AssistantReply("edit", f"{reply.message}\n\n{note}", reply.source)
+            if fixed.kind != "edit":
+                break
+            text, reply = fixed_text, fixed
+            errors = find_program_errors(reply.source or "")
+        if rounds == 0:
+            return text, reply
+        if errors:
+            note = (f"Gemini could not fix every problem in {rounds} automatic pass(es). Remaining:\n"
+                    + "\n".join(f"- {error}" for error in errors))
+        else:
+            note = f"The IDE found errors in the first draft; Gemini fixed them in {rounds} automatic pass(es)."
+        return text, AssistantReply("edit", f"{reply.message}\n\n{note}", reply.source)
+
     def _poll_assistant(self) -> None:
         try:
             result = self._results.get_nowait()
         except queue.Empty:
+            self.after(80, self._poll_assistant)
+            return
+        if result[0] == "progress":
+            self.sidebar.set_busy_text(result[1])
             self.after(80, self._poll_assistant)
             return
         self._assistant_busy = False

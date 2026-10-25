@@ -72,14 +72,14 @@ class CPU:
         ptr = self.mem.read16(self.pc)
         self.pc = (self.pc + 1) & 0xFFFF
         ptr_2 = self.mem.read16(ptr)
-        return self.mem.read8(ptr)
+        return self.mem.read8(ptr_2)
 
     def write_ind(self, val):
         self.pc = (self.pc + 1) & 0xFFFF
         ptr = self.mem.read16(self.pc)
         self.pc = (self.pc + 1) & 0xFFFF
         ptr_2 = self.mem.read16(ptr)
-        return self.mem.write8(ptr, val)
+        return self.mem.write8(ptr_2, val)
     
     def fetch_ind_i(self):
         self.pc = (self.pc + 1) & 0xFFFF
