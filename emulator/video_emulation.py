@@ -9,15 +9,16 @@ VRAM_START = 0x8000
 
 
 # ---------------------------------------------------------------- graphics mode (mode 1)
-# 80 x 60 blocks of 4 x 4 pixels, each block a 2 x 2 grid of subpixels.
-# Each block takes 4 bytes of VRAM, of which the first two hold its colors:
+# 40 x 30 blocks of 8 x 8 pixels (the same cells as text mode), each block a
+# 2 x 2 grid of 4 x 4 subpixels, giving 80 x 60 subpixels. Each block takes
+# 2 bytes of VRAM, laid out in the same order as text mode:
 #   byte 0: upper-left (upper nibble), upper-right (lower nibble)
 #   byte 1: lower-left (upper nibble), lower-right (lower nibble)
 
-GRAPHICS_COLUMNS = 80
-GRAPHICS_ROWS = 60
-BLOCK_SIZE = 4
-BYTES_PER_BLOCK = 4
+GRAPHICS_COLUMNS = 40
+GRAPHICS_ROWS = 30
+BLOCK_SIZE = 8
+BYTES_PER_BLOCK = 2
 
 
 def block_draw(canvas: pygame.Surface, x_block: int, y_block: int, upper: int, lower: int) -> None:
@@ -107,11 +108,11 @@ def text_mode_emulation(canvas: pygame.Surface, memory: Memory) -> None:
     draw_text_rows(canvas, memory, TEXT_VRAM_START, 0, TEXT_ROWS)
 
 
-# ---------------------------------------------------------------- split mode
-# Graphics on top (52 block rows = 208 pixels), then 4 rows of text in the
-# remaining 32 pixels. Text cells follow the graphics data in VRAM.
+# ---------------------------------------------------------------- split mode (mode 2)
+# Graphics on top (26 block rows = 208 pixels), then 4 rows of text in the
+# remaining 32 pixels. Text cells follow the graphics data in VRAM, at $8820.
 
-HALF_GRAPHICS_ROWS = 52
+HALF_GRAPHICS_ROWS = 26
 HALF_TEXT_ROWS = 4
 HALF_TEXT_VRAM_START = VRAM_START + HALF_GRAPHICS_ROWS * GRAPHICS_COLUMNS * BYTES_PER_BLOCK
 HALF_TEXT_FIRST_ROW = HALF_GRAPHICS_ROWS * BLOCK_SIZE // CHAR_SIZE
