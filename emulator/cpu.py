@@ -86,14 +86,14 @@ class CPU:
         ptr = self.mem.read16(self.pc)
         self.pc = (self.pc + 1) & 0xFFFF
         ptr_2 = self.mem.read16(ptr)
-        return self.mem.read8((ptr + self.i) & 0xFFFF)
+        return self.mem.read8((ptr_2 + self.i) & 0xFFFF)
     
     def write_ind_i(self, val):
         self.pc = (self.pc + 1) & 0xFFFF
         ptr = self.mem.read16(self.pc)
         self.pc = (self.pc + 1) & 0xFFFF
         ptr_2 = self.mem.read16(ptr)
-        return self.mem.write8((ptr + self.i) & 0xFFFF, val)
+        return self.mem.write8((ptr_2 + self.i) & 0xFFFF, val)
     
     def cycle(self):
         if self.halted:
@@ -122,7 +122,7 @@ class CPU:
                 self.sp = (self.sp - 1) & 0xFFFF
                 self.mem.write8(self.sp, self.a)
             case 0x10:
-                carry = 0
+                self.carry = 0
             case 0x11:
                 self.xor_flags(self.b)
             case 0x12:
@@ -230,6 +230,7 @@ class CPU:
                 self.zero = 1 if self.c == 0 else 0
             case 0x56:
                 self.c = self.fetch_ind()
+                self.zero = 1 if self.c == 0 else 0
             case 0x57:
                 self.c = self.fetch_ind_i()
                 self.zero = 1 if self.c == 0 else 0
@@ -465,7 +466,7 @@ class CPU:
             case 0xCF:
                 self.write_ind_i(self.b)
             case 0xD0:
-                self.a = self.a << 1 + self.carry
+                self.a = (self.a << 1) + self.carry
                 if self.a > 0xFF:
                     self.a = self.a & 0xFF
                     self.carry = 1
@@ -473,7 +474,7 @@ class CPU:
                     self.carry = 0
                 self.zero = 1 if self.a == 0 else 0
             case 0xD1:
-                self.b = self.b << 1 + self.carry
+                self.b = (self.b << 1) + self.carry
                 if self.b > 0xFF:
                     self.b = self.b & 0xFF
                     self.carry = 1
@@ -481,7 +482,7 @@ class CPU:
                     self.carry = 0
                 self.zero = 1 if self.b == 0 else 0
             case 0xD2:
-                self.c = self.c << 1 + self.carry
+                self.c = (self.c << 1) + self.carry
                 if self.c > 0xFF:
                     self.c = self.c & 0xFF
                     self.carry = 1
@@ -490,7 +491,7 @@ class CPU:
                 self.zero = 1 if self.c == 0 else 0
             case 0xD4:
                 val = self.fetch_abs()
-                val = val << 1 + self.carry
+                val = (val << 1) + self.carry
                 if val > 0xFF:
                     val = val & 0xFF
                     self.carry = 1
@@ -501,7 +502,7 @@ class CPU:
                 self.write_abs(val)
             case 0xD5:
                 val = self.fetch_abs_i()
-                val = val << 1 + self.carry
+                val = (val << 1) + self.carry
                 if val > 0xFF:
                     val = val & 0xFF
                     self.carry = 1
@@ -512,7 +513,7 @@ class CPU:
                 self.write_abs_i(val)
             case 0xD6:
                 val = self.fetch_ind()
-                val = val << 1 + self.carry
+                val = (val << 1) + self.carry
                 if val > 0xFF:
                     val = val & 0xFF
                     self.carry = 1
@@ -523,7 +524,7 @@ class CPU:
                 self.write_ind(val)
             case 0xD7:
                 val = self.fetch_ind_i()
-                val = val << 1 + self.carry
+                val = (val << 1) + self.carry
                 if val > 0xFF:
                     val = val & 0xFF
                     self.carry = 1
@@ -558,7 +559,7 @@ class CPU:
                 new_carry = 0
                 if self.c & 1:
                     new_carry = 1
-                self.a = self.carry * 128 + (self.c >> 1)
+                self.c = self.carry * 128 + (self.c >> 1)
                 self.carry = new_carry
                 self.zero = 1 if self.c == 0 else 0
             case 0xE4:
@@ -568,7 +569,7 @@ class CPU:
                     new_carry = 1
                 val = self.carry * 128 + (val >> 1)
                 self.carry = new_carry
-                self.zero = 1 if self.c == 0 else 0
+                self.zero = 1 if val == 0 else 0
                 self.pc = (self.pc - 2) & 0xFFFF
                 self.write_abs(val) 
             case 0xE5:
@@ -578,7 +579,7 @@ class CPU:
                     new_carry = 1
                 val = self.carry * 128 + (val >> 1)
                 self.carry = new_carry
-                self.zero = 1 if self.c == 0 else 0
+                self.zero = 1 if val == 0 else 0
                 self.pc = (self.pc - 2) & 0xFFFF
                 self.write_abs_i(val) 
             case 0xE6:
@@ -588,7 +589,7 @@ class CPU:
                     new_carry = 1
                 val = self.carry * 128 + (val >> 1)
                 self.carry = new_carry
-                self.zero = 1 if self.c == 0 else 0
+                self.zero = 1 if val == 0 else 0
                 self.pc = (self.pc - 2) & 0xFFFF
                 self.write_ind(val) 
             case 0xE7:
@@ -598,7 +599,7 @@ class CPU:
                     new_carry = 1
                 val = self.carry * 128 + (val >> 1)
                 self.carry = new_carry
-                self.zero = 1 if self.c == 0 else 0
+                self.zero = 1 if val == 0 else 0
                 self.pc = (self.pc - 2) & 0xFFFF
                 self.write_ind_i(val) 
             case 0xE8:
