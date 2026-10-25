@@ -13,7 +13,7 @@ class CPU:
         self.halted = False
 
     def reset(self):
-        self.pc = mem.read16(0xFFFE)
+        self.pc = self.mem.read16(0xFFFE)
         self.halted = False
 
     def add_flags(self, op):
@@ -86,14 +86,14 @@ class CPU:
         ptr = self.mem.read16(self.pc)
         self.pc = (self.pc + 1) & 0xFFFF
         ptr_2 = self.mem.read16(ptr)
-        return self.mem.read8((ptr + i) & 0xFFFF)
+        return self.mem.read8((ptr + self.i) & 0xFFFF)
     
     def write_ind_i(self, val):
         self.pc = (self.pc + 1) & 0xFFFF
         ptr = self.mem.read16(self.pc)
         self.pc = (self.pc + 1) & 0xFFFF
         ptr_2 = self.mem.read16(ptr)
-        return self.mem.write8((ptr + i) & 0xFFFF, val)
+        return self.mem.write8((ptr + self.i) & 0xFFFF, val)
     
     def cycle(self):
         if self.halted:
