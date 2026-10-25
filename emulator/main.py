@@ -7,6 +7,10 @@ import os
 import sys
 from input_checker import get_input_state
 
+VIDEO_WIDTH = 320
+VIDEO_HEIGHT = 240
+WINDOW_SIZE = (VIDEO_WIDTH * 3, VIDEO_HEIGHT * 3)
+
 
 def main(program_path=None):
     pygame.init()
@@ -35,8 +39,8 @@ def main(program_path=None):
     for i in range(len(data)):
         mem.write8(0x100 + i, data[i])
 
-    screen = pygame.display.set_mode((320, 240))
-    surface = pygame.Surface((320, 240))
+    screen = pygame.display.set_mode(WINDOW_SIZE, pygame.RESIZABLE)
+    surface = pygame.Surface((VIDEO_WIDTH, VIDEO_HEIGHT))
 
     running = True
     while running:
@@ -44,6 +48,8 @@ def main(program_path=None):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+            elif event.type == pygame.VIDEORESIZE:
+                screen = pygame.display.set_mode(event.size, pygame.RESIZABLE)
         while time.perf_counter() - frame_start < 1 / 60:
             instruct_start = time.perf_counter()
             c.cycle()
@@ -72,7 +78,14 @@ def main(program_path=None):
                    | (keys[pygame.K_LCTRL] or keys[pygame.K_RCTRL]))
 
         mem.write8(0x9001, (mem.read8(0x9001) + 1) & 0xFF)
-        screen.blit(surface, (0, 0))
+        screen.fill((0, 0, 0))
+        screen_width, screen_height = screen.get_size()
+        scale = min(screen_width / VIDEO_WIDTH, screen_height / VIDEO_HEIGHT)
+        scaled_size = (max(1, int(VIDEO_WIDTH * scale)),
+                       max(1, int(VIDEO_HEIGHT * scale)))
+        scaled_surface = pygame.transform.scale(surface, scaled_size)
+        screen.blit(scaled_surface, ((screen_width - scaled_size[0]) // 2,
+                                     (screen_height - scaled_size[1]) // 2))
         pygame.display.flip()
 
     pygame.quit()

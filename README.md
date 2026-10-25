@@ -37,6 +37,8 @@ Swap `doom.bin` for `snake.bin` or `breakout_game.bin` to play the others. With 
 - **Mode 1, graphics:** 40 × 30 blocks of 8 × 8 pixels, each split into four 4 × 4 subpixels, so the screen is 80 × 60 subpixels. Two bytes per block, one nibble (color) per subpixel.
 - **Mode 2, mixed:** 26 rows of graphics on top, 4 rows of text underneath. Most of the games use this mode, with the text rows as a status bar.
 
+The emulator opens in a 960 × 720 window. Resize the window to scale the display; it keeps the 4:3 aspect ratio and adds black bars when needed.
+
 **I/O addresses:**
 
 | Address | What it is |
