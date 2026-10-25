@@ -1,15 +1,17 @@
 ; ============================================================================
-; TRINITY DOOM  (made by game_examples/doom_build.py: edit the map there)
+; TRINITY DOOM  (made by game_examples/doom_build.py: edit the levels there)
 ;
 ; A DOOM-style raycaster for Project Trinity in video mode 2 (mixed). The top
 ; 26 rows show a first-person 3D view, 40 columns wide: one ray per column is
 ; traced through a 16 x 16 map and its wall drawn taller the closer it is.
+; There are 4 levels, played in order.
 ; The bottom 4 rows show health, ammo, kills and messages.
 ;
 ; Controls: up/down (or W/S) walk, left/right (or A/D) turn,
 ;           Ctrl (or SPACE when no arrow is held) shoots.
-; Shoot the 6 imps (pink/red blocks): standing next to one hurts. You start
-; with 20 bullets. Walk into the yellow exit to finish the level.
+; Shoot the imps (pink/red blocks): standing next to one hurts. You start with
+; 20 bullets. Walk into the yellow exit to go to the next level (you keep
+; your health and get 10 more bullets). Dying restarts the level.
 ;
 ; How a frame is drawn
 ;   1. cast_all: for each column, the ray angle is player angle + column - 20
@@ -38,12 +40,14 @@
 ;   $0031 fire held last frame  $0032 muzzle flash timer  $0033 clock last frame
 ;   $0034 ticks this frame  $0035 imp attack timer  $0036 health  $0037 ammo
 ;   $0038 kills  $0039 0 playing, 1 dead, 2 level complete  $003A scratch
-;   $003C hurt flash timer  $0040-$0044 multiply  $0045-$004B movement
+;   $003C hurt flash timer  $003D level (0 = first)
+;   $0040-$0044 multiply  $0045-$004B movement
 ;   $0050 string index  $0051/$0052 text address
 ;   $0D00 patched helper routines   $0E00 column painter
 ;   $1000-$15FF ray and movement tables   $2000-$34FF wall height tables
-;   $3800 level being played   $3900 level as built   $3A00 colors, offsets, text
+;   $3800 level being played   $3A00 colors, offsets, text
 ;   $3C00 per column: half heights  $3C40 colors  $3C80 cell types  $3CC0 map indexes
+;   $3E00 level starts and imp counts   $3F00 level names   $4000 the levels, 256 bytes each
 ; ============================================================================
 
 
@@ -54,36 +58,12 @@ start:
   lda #$02              ; video mode 2: graphics on top, text below
   sta $9000
   jsr clear_screen
-  ldi #$00
-copy_map:
-  lda $3900,i
-  sta $3800,i
-  inc i
-  jne copy_map
-  lda #$80              ; start in the middle of the P cell, facing east
-  sta $11
-  sta $13
-  lda #$01
-  sta $12
-  lda #$01
-  sta $14
-  lda #$00
-  sta $10
-  sta $38
-  sta $39
-  sta $32
-  sta $35
-  sta $3C
-  sta $3C93           ; forget what the last game was aiming at
-  sta $3C94
-  lda #$10              ; treat fire as held, so the SPACE that started
-  sta $31               ; this game doesn't also shoot
-  lda #$64              ; health 100
+  lda #$00              ; first level, full health and ammo
+  sta $3D
+  lda #$64
   sta $36
   lda #$14
   sta $37
-  lda $9001
-  sta $33
 
   lda #$00
   sta $50
@@ -99,20 +79,14 @@ copy_map:
   lda #$88
   sta $52
   jsr print
-  lda #$4C
+  lda #$32
   sta $50
   lda #$C1              ; text row 28
   sta $51
   lda #$88
   sta $52
   jsr print
-  lda #$72
-  sta $50
-  lda #$11              ; text row 29
-  sta $51
-  lda #$89
-  sta $52
-  jsr print
+  jsr load_level
 
 ; ============================================================================
 ; Main loop: one frame
@@ -130,37 +104,143 @@ main_loop:
   jsr draw_hud
   jmp main_loop
 
-; ---- died or finished: show the message, wait for keys up, then SPACE
+; ---- died or reached an exit
 end_state:
   jsr draw_hud
   jsr clear_message
   lda $39
   cmp #$01
-  jne es_win
-  lda #$99
-  jmp es_print
-es_win:
-  lda #$BD
-es_print:
+  jne es_exit
+  lda #$7F         ; died: this level again, with full health and ammo
+  jsr show_message
+  jsr wait_space
+  lda #$64
+  sta $36
+  lda #$14
+  sta $37
+  jsr load_level
+  jmp main_loop
+es_exit:
+  lda $3D
+  cmp #$03
+  jeq es_episode
+  lda #$A3         ; on to the next level, keeping health, 10 more bullets
+  jsr show_message
+  jsr wait_space
+  inc $3D
+  lda $37
+  clc
+  adc #$0A
+  jcc es_ammo
+  lda #$FF
+es_ammo:
+  sta $37
+  jsr load_level
+  jmp main_loop
+es_episode:
+  lda #$CB      ; that was the last level: back to the first
+  jsr show_message
+  jsr wait_space
+  jmp start
+
+; show_message: print string a on text row 29
+show_message:
   sta $50
   lda #$11
   sta $51
   lda #$89
   sta $52
   jsr print
-es_release:
+  ret
+
+; wait_space: wait for all keys up, then for SPACE
+wait_space:
   lda $9005
   and #$1F
-  jne es_release
+  jne wait_space
   lda $9004
-  jne es_release
-es_wait:
+  jne wait_space
+ws_wait:
   lda $9004
-  jeq es_wait
+  jeq ws_wait
   lda $9003
   cmp #$20
-  jne es_wait
-  jmp start
+  jne ws_wait
+  ret
+
+; ============================================================================
+; load_level: start level $003D: copy its map, place the player, reset the
+; level's kills and timers, show its name and imp count, and the opening message
+; ============================================================================
+load_level:
+  lda #$40              ; its map is at $4000 + 256 * level
+  clc
+  adc $3D
+  sta $0D0E
+  ldi #$00
+ll_copy:
+  jsr mapread
+  sta $3800,i
+  inc i
+  jne ll_copy
+  lda $3D               ; its start and imps: 4 bytes at $3E00 + 4 * level
+  asl a
+  asl a
+  tai
+  lda $3E00,i
+  sta $12
+  lda $3E01,i
+  sta $14
+  lda $3E02,i
+  sta $10
+  lda $3E03,i
+  clc
+  adc #$30
+  sta $8865
+  lda #$80              ; the middle of the start cell
+  sta $11
+  sta $13
+  lda #$00
+  sta $38
+  sta $39
+  sta $32
+  sta $35
+  sta $3C
+  sta $3C93           ; forget what the last level was aiming at
+  sta $3C94
+  lda #$10              ; treat fire as held, so the SPACE that started
+  sta $31               ; this level doesn't also shoot
+  lda $3D               ; its name: 16 characters at $3F00 + 16 * level,
+  asl a                 ; on the right of text row 27
+  asl a
+  asl a
+  asl a
+  sta $50
+  lda #$9F
+  sta $0D09
+  lda #$88
+  sta $0D0A
+  ldb #$00
+ll_name:
+  ldi $50
+  lda $3F00,i
+  tac
+  tba
+  tai
+  tca
+  jsr prstore
+  inc $50
+  inc b
+  inc b
+  tba
+  cmp #$20
+  jne ll_name
+  jsr clear_message
+  lda #$58
+  jsr show_message
+  lda $9001
+  sta $33
+  ret
 
 ; ============================================================================
 ; wait_tick: wait for the clock, then $0034 = ticks since last frame (1-8)
@@ -1127,6 +1207,9 @@ hlook:                  ; $0D04: a = height table byte (table page in $0D06)
   ret
 prstore:                ; $0D08: write a character (address in $0D09/$0D0A)
   sta $8000,i
+  ret
+mapread:                ; $0D0C: a = byte of a level map (page in $0D0E)
+  lda $4000,i
   ret
 
 
@@ -4728,8 +4811,326 @@ col0:
 .bytes $01, $01
 .bytes $01, $01
 
-; The level (copied to $3800 at the start of each game)
-.org $3900
+; Wall colors: cell type * 2 + side (0 lit, 1 shaded)
+.org $3A00
+.bytes $00, $00
+.bytes $66, $55
+.bytes $BB, $33
+.bytes $DD, $22
+.bytes $EE, $88
+.bytes $AA, $99
+
+; Map offsets of the 8 cells around the player
+.org $3A10
+.bytes $EF, $F0
+.bytes $F1, $FF
+.bytes $01, $0F
+.bytes $10, $11
+
+; Text, each string ending in 0: $00 HUD  $24 TITLE  $32 HELP  $58 START  $7F DEAD  $A3 NEXT  $CB EPISODE
+.org $3A20
+.bytes $20, $48
+.bytes $45, $41
+.bytes $4C, $54
+.bytes $48, $20
+.bytes $31, $30
+.bytes $30, $25
+.bytes $20, $20
+.bytes $20, $41
+.bytes $4D, $4D
+.bytes $4F, $20
+.bytes $30, $32
+.bytes $30, $20
+.bytes $20, $20
+.bytes $4B, $49
+.bytes $4C, $4C
+.bytes $53, $20
+.bytes $30, $2F
+.bytes $30, $00
+.bytes $20, $54
+.bytes $52, $49
+.bytes $4E, $49
+.bytes $54, $59
+.bytes $20, $44
+.bytes $4F, $4F
+.bytes $4D, $00
+.bytes $20, $41
+.bytes $52, $52
+.bytes $4F, $57
+.bytes $53, $2F
+.bytes $57, $41
+.bytes $53, $44
+.bytes $3A, $20
+.bytes $4D, $4F
+.bytes $56, $45
+.bytes $20, $20
+.bytes $43, $54
+.bytes $52, $4C
+.bytes $2F, $53
+.bytes $50, $41
+.bytes $43, $45
+.bytes $3A, $20
+.bytes $53, $48
+.bytes $4F, $4F
+.bytes $54, $00
+.bytes $20, $46
+.bytes $49, $4E
+.bytes $44, $20
+.bytes $54, $48
+.bytes $45, $20
+.bytes $59, $45
+.bytes $4C, $4C
+.bytes $4F, $57
+.bytes $20, $45
+.bytes $58, $49
+.bytes $54, $2E
+.bytes $20, $57
+.bytes $41, $54
+.bytes $43, $48
+.bytes $20, $46
+.bytes $4F, $52
+.bytes $20, $49
+.bytes $4D, $50
+.bytes $53, $21
+.bytes $00, $20
+.bytes $59, $4F
+.bytes $55, $20
+.bytes $44, $49
+.bytes $45, $44
+.bytes $21, $20
+.bytes $50, $52
+.bytes $45, $53
+.bytes $53, $20
+.bytes $53, $50
+.bytes $41, $43
+.bytes $45, $20
+.bytes $54, $4F
+.bytes $20, $54
+.bytes $52, $59
+.bytes $20, $41
+.bytes $47, $41
+.bytes $49, $4E
+.bytes $00, $20
+.bytes $4C, $45
+.bytes $56, $45
+.bytes $4C, $20
+.bytes $43, $4F
+.bytes $4D, $50
+.bytes $4C, $45
+.bytes $54, $45
+.bytes $21, $20
+.bytes $53, $50
+.bytes $41, $43
+.bytes $45, $20
+.bytes $46, $4F
+.bytes $52, $20
+.bytes $54, $48
+.bytes $45, $20
+.bytes $4E, $45
+.bytes $58, $54
+.bytes $20, $4F
+.bytes $4E, $45
+.bytes $00, $20
+.bytes $59, $4F
+.bytes $55, $20
+.bytes $42, $45
+.bytes $41, $54
+.bytes $20, $54
+.bytes $48, $45
+.bytes $4D, $20
+.bytes $41, $4C
+.bytes $4C, $21
+.bytes $20, $53
+.bytes $50, $41
+.bytes $43, $45
+.bytes $20, $54
+.bytes $4F, $20
+.bytes $50, $4C
+.bytes $41, $59
+.bytes $20, $41
+.bytes $47, $41
+.bytes $49, $4E
+.bytes $00, $00
+
+; Levels: start x, start y, start angle, number of imps
+.org $3E00
+.bytes $01, $01
+.bytes $00, $00
+.bytes $01, $01
+.bytes $00, $06
+.bytes $01, $01
+.bytes $00, $07
+.bytes $01, $01
+.bytes $40, $07
+
+; Level names as shown on the status bar, 16 characters each
+.org $3F00
+.bytes $20, $20
+.bytes $45, $31
+.bytes $4D, $31
+.bytes $3A, $20
+.bytes $4D, $59
+.bytes $20, $4C
+.bytes $45, $56
+.bytes $45, $4C
+.bytes $20, $20
+.bytes $20, $20
+.bytes $45, $31
+.bytes $4D, $32
+.bytes $3A, $20
+.bytes $48, $41
+.bytes $4E, $47
+.bytes $41, $52
+.bytes $20, $45
+.bytes $31, $4D
+.bytes $33, $3A
+.bytes $20, $54
+.bytes $4F, $58
+.bytes $49, $4E
+.bytes $20, $4C
+.bytes $41, $42
+.bytes $20, $20
+.bytes $20, $45
+.bytes $31, $4D
+.bytes $34, $3A
+.bytes $20, $43
+.bytes $4F, $4D
+.bytes $4D, $41
+.bytes $4E, $44
+
+; Level 1: MY LEVEL (copied to $3800 when it starts)
+.org $4000
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $05
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+
+; Level 2: HANGAR (copied to $3800 when it starts)
+.org $4100
 .bytes $01, $01
 .bytes $01, $01
 .bytes $01, $01
@@ -4859,135 +5260,264 @@ col0:
 .bytes $01, $01
 .bytes $01, $01
 
-; Wall colors: cell type * 2 + side (0 lit, 1 shaded)
-.org $3A00
+; Level 3: TOXIN LAB (copied to $3800 when it starts)
+.org $4200
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $00
 .bytes $00, $00
-.bytes $66, $55
-.bytes $BB, $33
-.bytes $DD, $22
-.bytes $EE, $88
-.bytes $AA, $99
+.bytes $00, $00
+.bytes $00, $02
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $02, $02
+.bytes $02, $00
+.bytes $00, $02
+.bytes $00, $00
+.bytes $02, $02
+.bytes $02, $02
+.bytes $00, $01
+.bytes $01, $00
+.bytes $02, $00
+.bytes $04, $00
+.bytes $00, $02
+.bytes $00, $00
+.bytes $02, $00
+.bytes $00, $04
+.bytes $00, $01
+.bytes $01, $00
+.bytes $02, $00
+.bytes $00, $00
+.bytes $00, $02
+.bytes $00, $00
+.bytes $02, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $02, $02
+.bytes $02, $02
+.bytes $00, $02
+.bytes $00, $00
+.bytes $02, $02
+.bytes $00, $02
+.bytes $02, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $02
+.bytes $02, $02
+.bytes $02, $00
+.bytes $02, $02
+.bytes $02, $02
+.bytes $02, $02
+.bytes $00, $02
+.bytes $02, $01
+.bytes $01, $00
+.bytes $00, $04
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $04
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $03, $03
+.bytes $00, $03
+.bytes $03, $03
+.bytes $03, $00
+.bytes $03, $03
+.bytes $00, $03
+.bytes $00, $01
+.bytes $01, $00
+.bytes $03, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $04, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $03, $00
+.bytes $03, $03
+.bytes $03, $03
+.bytes $00, $03
+.bytes $03, $03
+.bytes $03, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $03, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $04, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $03, $00
+.bytes $00, $04
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $03, $00
+.bytes $00, $00
+.bytes $00, $05
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
 
-; Map offsets of the 8 cells around the player
-.org $3A10
-.bytes $EF, $F0
-.bytes $F1, $FF
-.bytes $01, $0F
-.bytes $10, $11
-
-; Text, each string ending in 0: $00 HUD  $24 TITLE  $4C HELP  $72 START  $99 DEAD  $BD WIN
-.org $3A20
-.bytes $20, $48
-.bytes $45, $41
-.bytes $4C, $54
-.bytes $48, $20
-.bytes $31, $30
-.bytes $30, $25
-.bytes $20, $20
-.bytes $20, $41
-.bytes $4D, $4D
-.bytes $4F, $20
-.bytes $30, $32
-.bytes $30, $20
-.bytes $20, $20
-.bytes $4B, $49
-.bytes $4C, $4C
-.bytes $53, $20
-.bytes $30, $2F
-.bytes $36, $00
-.bytes $20, $54
-.bytes $52, $49
-.bytes $4E, $49
-.bytes $54, $59
-.bytes $20, $44
-.bytes $4F, $4F
-.bytes $4D, $20
-.bytes $20, $20
-.bytes $20, $20
-.bytes $20, $20
-.bytes $20, $20
-.bytes $20, $20
-.bytes $20, $20
-.bytes $20, $45
-.bytes $31, $4D
-.bytes $31, $3A
-.bytes $20, $48
-.bytes $41, $4E
-.bytes $47, $41
-.bytes $52, $00
-.bytes $20, $41
-.bytes $52, $52
-.bytes $4F, $57
-.bytes $53, $2F
-.bytes $57, $41
-.bytes $53, $44
-.bytes $3A, $20
-.bytes $4D, $4F
-.bytes $56, $45
-.bytes $20, $20
-.bytes $43, $54
-.bytes $52, $4C
-.bytes $2F, $53
-.bytes $50, $41
-.bytes $43, $45
-.bytes $3A, $20
-.bytes $53, $48
-.bytes $4F, $4F
-.bytes $54, $00
-.bytes $20, $46
-.bytes $49, $4E
-.bytes $44, $20
-.bytes $54, $48
-.bytes $45, $20
-.bytes $59, $45
-.bytes $4C, $4C
-.bytes $4F, $57
-.bytes $20, $45
-.bytes $58, $49
-.bytes $54, $2E
-.bytes $20, $57
-.bytes $41, $54
-.bytes $43, $48
-.bytes $20, $46
-.bytes $4F, $52
-.bytes $20, $49
-.bytes $4D, $50
-.bytes $53, $21
-.bytes $00, $20
-.bytes $59, $4F
-.bytes $55, $20
-.bytes $44, $49
-.bytes $45, $44
-.bytes $21, $20
-.bytes $50, $52
-.bytes $45, $53
-.bytes $53, $20
-.bytes $53, $50
-.bytes $41, $43
-.bytes $45, $20
-.bytes $54, $4F
-.bytes $20, $54
-.bytes $52, $59
-.bytes $20, $41
-.bytes $47, $41
-.bytes $49, $4E
-.bytes $00, $20
-.bytes $4C, $45
-.bytes $56, $45
-.bytes $4C, $20
-.bytes $43, $4F
-.bytes $4D, $50
-.bytes $4C, $45
-.bytes $54, $45
-.bytes $21, $20
-.bytes $50, $52
-.bytes $45, $53
-.bytes $53, $20
-.bytes $53, $50
-.bytes $41, $43
-.bytes $45, $20
-.bytes $54, $4F
-.bytes $20, $52
-.bytes $45, $50
-.bytes $4C, $41
-.bytes $59, $00
+; Level 4: COMMAND (copied to $3800 when it starts)
+.org $4300
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $00, $00
+.bytes $04, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $03
+.bytes $03, $00
+.bytes $00, $01
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $03
+.bytes $03, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $03, $03
+.bytes $03, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $00, $00
+.bytes $03, $00
+.bytes $03, $00
+.bytes $00, $01
+.bytes $01, $01
+.bytes $01, $00
+.bytes $01, $01
+.bytes $01, $01
+.bytes $00, $00
+.bytes $03, $00
+.bytes $03, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $04
+.bytes $00, $00
+.bytes $00, $01
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $01, $00
+.bytes $01, $01
+.bytes $01, $00
+.bytes $01, $01
+.bytes $01, $00
+.bytes $02, $02
+.bytes $00, $04
+.bytes $00, $00
+.bytes $01, $00
+.bytes $01, $04
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $02, $02
+.bytes $00, $00
+.bytes $00, $00
+.bytes $01, $00
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $01, $00
+.bytes $01, $01
+.bytes $01, $00
+.bytes $00, $01
+.bytes $01, $00
+.bytes $00, $04
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $04
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $00
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $00, $01
+.bytes $01, $01
+.bytes $01, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $00, $00
+.bytes $04, $00
+.bytes $00, $05
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
+.bytes $01, $01
