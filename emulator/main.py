@@ -24,7 +24,7 @@ def main():
     mem.write8(3, 0x00)
     mem.write8(4, 0x80)
 
-    with open("snake.bin", "rb") as f:
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "snake.bin"), "rb") as f:
         data = list(f.read())
 
     for i in range(len(data)):
@@ -54,10 +54,17 @@ def main():
             half_emulation(surface, mem)
         inp = get_input_state()
         if inp[0]:
-            mem.write8(0x9003, ord(inp[1]))
+            if inp[1]:                      # arrows, Shift etc. have no character
+                mem.write8(0x9003, ord(inp[1]))
             mem.write8(0x9004, 1)
         else:
             mem.write8(0x9004, 0)
+
+        # Joystick 0 ($9005): arrow keys and Ctrl as bits XXXUDLRC
+        keys = pygame.key.get_pressed()
+        mem.write8(0x9005, (keys[pygame.K_UP] << 4) | (keys[pygame.K_DOWN] << 3)
+                   | (keys[pygame.K_LEFT] << 2) | (keys[pygame.K_RIGHT] << 1)
+                   | (keys[pygame.K_LCTRL] or keys[pygame.K_RCTRL]))
 
         mem.write8(0x9001, (mem.read8(0x9001) + 1) & 0xFF)
         screen.blit(surface, (0, 0))
