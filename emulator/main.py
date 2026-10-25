@@ -4,6 +4,7 @@ from cpu import CPU
 import time
 from video_emulation import video_emulation, text_mode_emulation, half_emulation
 import os
+import sys
 from input_checker import get_input_state
 
 def main():
@@ -24,7 +25,10 @@ def main():
     mem.write8(3, 0x00)
     mem.write8(4, 0x80)
 
-    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "snake.bin"), "rb") as f:
+    # Program to run: python main.py breakout_game.bin (default snake.bin),
+    # looked up next to this file unless a full path is given
+    program = sys.argv[1] if len(sys.argv) > 1 else "snake.bin"
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), program), "rb") as f:
         data = list(f.read())
 
     for i in range(len(data)):
