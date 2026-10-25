@@ -39,6 +39,7 @@ def main(program_path=None):
     for i in range(len(data)):
         mem.write8(0x100 + i, data[i])
 
+    pygame.display.set_caption("TRINITY")
     screen = pygame.display.set_mode(WINDOW_SIZE, pygame.RESIZABLE)
     surface = pygame.Surface((VIDEO_WIDTH, VIDEO_HEIGHT))
 
