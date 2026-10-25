@@ -54,8 +54,8 @@ SOURCE_FILETYPES = [("Trinity assembly source", "*.s")]
 DEFAULT_FILE_NAME = "untitled.s"
 INDENT_WIDTH = 4
 
-# Gemini 3.8 Flash is the most capable model on the Gemini API free tier (Pro models are paid only).
-GEMINI_MODEL = "gemini-3.8-flash"
+# Gemini 3.4 Flash-Lite: a fast, low-cost model available on the Gemini API free tier.
+GEMINI_MODEL = "gemini-3.5-flash-lite"
 GEMINI_API_ROOT = "https://generativelanguage.googleapis.com/v1beta"
 GEMINI_KEY_VARIABLE = "GEMINI_API_KEY"
 # Gemini thinks before it replies and sends nothing until it finishes, so long programs can take several minutes.
